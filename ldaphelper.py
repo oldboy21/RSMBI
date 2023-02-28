@@ -4,6 +4,7 @@ from ldap3 import Connection, Server, ANONYMOUS, SIMPLE, SYNC, ASYNC, KERBEROS
 from ldap3 import Server, Connection, SAFE_SYNC, SASL, GSSAPI, DSA, SUBTREE, NTLM
 from subprocess import Popen, PIPE
 import logging
+import re
 
 logger = logging.getLogger('rSMBi')
 
@@ -86,20 +87,31 @@ class LDAPHelper():
 
         dn = server.info.other["defaultNamingContext"][0]
 
-        # status, result, response, _ = conn.search(dn, '(objectClass=Computer)', attributes=['dNSHostName'], paged_size=2000)
         status, result, response, _ = conn.search(
             dn, '(&(objectCategory=Computer)(name=*))', search_scope=SUBTREE, attributes=['dNSHostName'], paged_size=500)
 
         computerObjectsList = []
         total_entries = len(response)
+        domain = ""
         for co in response:
             try:
                 computerObjectsList.append(
                     (co['attributes']['dNSHostName'])[0])
                 # print ((co['attributes']['dNSHostName'])[0])
             except Exception as e:
-                logger.warning("Error retrieving dNSHostName for ")
-                logger.warning(co)
+                try:
+                    x = re.findall('DC=(?<==)(.*?)(?=(,|$))', co['dn'])
+                    for domainsub in x:
+                        domain += (domainsub[0]) + '.'
+
+                    computerObjectsList.append(((co['dn']).split(',')[0]).split(
+                        '=')[1] + '.' + domain[:len(domain)-1])
+                    # print(((co['dn']).split(',')[0]).split(
+                    #    '=')[1] + '.' + domain[:len(domain)-1])
+                except Exception as e:
+                    logger.warning("Error retrieving dNSHostName for ")
+                    logger.warning(co)
+            domain = ""
 
         cookie = conn.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']
         while cookie:
@@ -111,8 +123,19 @@ class LDAPHelper():
                     computerObjectsList.append(
                         (co['attributes']['dNSHostName'])[0])
                 except Exception as e:
-                    logger.warning("Error retrieving dNSHostName for ")
-                    logger.warning(co)
+                    try:
+                        x = re.findall('DC=(?<==)(.*?)(?=(,|$))', co['dn'])
+                        for domainsub in x:
+                            domain += (domainsub[0]) + '.'
+
+                        computerObjectsList.append(((co['dn']).split(',')[0]).split(
+                            '=')[1] + '.' + domain[:len(domain)-1])
+                        # print(((co['dn']).split(',')[0]).split(
+                        #    '=')[1] + '.' + domain[:len(domain)-1])
+                    except Exception as e:
+                        logger.warning("Error retrieving dNSHostName for ")
+                        logger.warning(co)
+                domain = ""
             cookie = conn.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']
         logger.info("Retrieved computer objects: ")
         logger.info(total_entries)
